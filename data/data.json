@@ -1,0 +1,8 @@
+{"data":{
+	"set1" : {
+		"front": "set1/set1_front.png",
+		"left": "set1/set1_left.png",
+		"back": "set1/set1_back.png",
+		"right": "set1/set1_right.png",
+	}
+}}
