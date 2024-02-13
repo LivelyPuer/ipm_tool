@@ -1,5 +1,7 @@
-import numpy as np
 import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+
 
 class IPMTransformer(object):
     def __init__(self, homography_matrix=None) -> None:
@@ -28,7 +30,9 @@ class IPMTransformer(object):
         # need_cut - флаг, указывающий, нужно ли обрезать изображение для удаления нулевых строк и столбцов в результате (по умолчанию True).
         # Возвращает преобразованное изображение после применения обратного преобразования перспективы.
         im_src = im_src[horizont:, :]  # Обрезаем изображение по горизонтали, если задана высота горизонтали
+
         im_dst = cv2.warpPerspective(im_src, self.__h, dst_size)  # Применяем матрицу гомографии
+
         if not need_cut:
             return im_dst
         if not is_mono:

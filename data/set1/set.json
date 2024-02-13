@@ -1,0 +1,8 @@
+{
+  "data": {
+    "forward": "data/set1/set1_front.png",
+    "left": "data/set1/set1_left.png",
+    "backward": "data/set1/set1_back.png",
+    "right": "data/set1/set1_right.png"
+  }
+}

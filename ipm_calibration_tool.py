@@ -8,12 +8,16 @@ import yaml
 from PIL import Image
 from PIL import ImageTk as itk
 from fastseg.image import colorize
+from matplotlib import pyplot as plt
 
 from ipm_transformer import IPMTransformer
 
 
-class CalibrationTool:
-    def __init__(self) -> None:
+class CalibrationTool(Toplevel):
+    def __init__(self, master, side_name, project_dir) -> None:
+        super().__init__(master=master)
+        self.side_name = side_name
+        self.project_dir = project_dir
         self.__img_width = 800
         self.__img_height = 800
         self.__src_image = None
@@ -23,7 +27,6 @@ class CalibrationTool:
         self.RECT_SIZE = 15
         self.__img_filetype = None
         self.__img_filename = None
-
         self.rt, self.lt, self.lb, self.rb = None, None, None, None
         self.rt_dst, self.lt_dst, self.lb_dst, self.rb_dst = None, None, None, None
         self.image = None
@@ -39,15 +42,14 @@ class CalibrationTool:
             "lb": "rb",
             "rb": "lb",
         }
-        self.root = Tk()
 
-        self.root.title("Calibration tool for IPM")  # title of the GUI window
-        self.root.maxsize(1500, 1000)  # specify the max size the window can expand to
+        self.title(f"Calibration tool for IPM ({side_name})")  # title of the GUI window
+        self.maxsize(1500, 1000)  # specify the max size the window can expand to
 
-        self.left_frame = Frame(self.root, width=1000, height=100)
+        self.left_frame = Frame(self, width=1000, height=100)
         self.left_frame.grid(row=0, column=0, padx=10, pady=5, columnspan=2)
 
-        self.center_frame = Frame(self.root, width=500, height=400)
+        self.center_frame = Frame(self, width=500, height=400)
         self.center_frame.grid(row=1, column=0, padx=10, pady=5)
 
         self.open_image_button = Button(
@@ -73,6 +75,11 @@ class CalibrationTool:
             text='Save config',
             command=self.save_config_file
         )
+        self.auto_save_config_button = Button(
+            self.left_frame,
+            text='Auto save config',
+            command=self.auto_save_config_file
+        )
 
         self.warp_depth_button = Button(
             self.left_frame,
@@ -84,8 +91,8 @@ class CalibrationTool:
         self.find_homography_button.grid(row=0, column=1, padx=5, pady=5)
         self.load_config_button.grid(row=0, column=2, padx=5, pady=5)
         self.save_config_button.grid(row=0, column=3, padx=5, pady=5)
-        self.warp_depth_button.grid(row=0, column=4, padx=5, pady=5)
-
+        self.auto_save_config_button.grid(row=0, column=4, padx=5, pady=5)
+        self.warp_depth_button.grid(row=0, column=5, padx=5, pady=5)
 
         self.limits_container = Canvas(self.center_frame)
         self.limits_container.grid(row=0, column=0)
@@ -93,7 +100,7 @@ class CalibrationTool:
 
         self.__src_point_placeholder = Label(self.center_frame, text="...")
         self.__src_point_placeholder.grid(row=1, column=0, padx=5, pady=5)
-        self.root.mainloop()
+        self.mainloop()
 
     def calc_pts(self, width, height):
         pts_src = np.array([[int(width / 4), self.__horizont_line_height - self.RECT_SIZE // 2],
@@ -140,6 +147,10 @@ class CalibrationTool:
     def save_config_file(self):
         filename = fd.asksaveasfile(filetypes=[("YAML config", "*.yaml")])
         self.save_config(filename.name)
+
+    def auto_save_config_file(self):
+        filename = os.path.join(self.project_dir, f"{self.side_name}.yaml")
+        self.save_config(filename)
 
     def transform_depth(self):
         depth_map = np.load(self.__img_filename.replace('_seg.npy', '_range.npy'))
@@ -205,6 +216,11 @@ class CalibrationTool:
         self.fill_pts_from_canvas()
         self.ipm_transformer.calc_homography(self.pts_src, self.pts_dst)
         h_img = cv2.resize(self.__src_image, (self.__img_width, self.__img_height))
+        fig = plt.figure()
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax1.imshow(h_img)
+
+        fig.show()
         self.__img_ipm = self.ipm_transformer.get_ipm(h_img, is_mono=self.__img_filetype == "npy",
                                                       horizont=self.__horizont_line_height)
         if (self.__img_filetype == "npy"):
@@ -315,7 +331,6 @@ class CalibrationTool:
             self.limits_container.moveto("current", event.x - self.RECT_SIZE // 2,
                                          event.y - self.RECT_SIZE // 2)
             self.limits_container.moveto(save_y_tag, save_y_point[0] - 1, cur_point[1] - 1)
-
 
         # Заморозить координаты Y у self.lt_dst, self.rt_dst, self.lt, self.rt по горизонтали
         for horizontal_point in (self.lt_dst, self.rt_dst, self.lt, self.rt):
