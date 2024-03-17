@@ -1,14 +1,13 @@
+import json
 import os
 from tkinter import *
 from tkinter import filedialog as fd
 
 import cv2
 import numpy as np
-import yaml
 from PIL import Image
 from PIL import ImageTk as itk
 from fastseg.image import colorize
-from matplotlib import pyplot as plt
 
 from ipm_transformer import IPMTransformer
 
@@ -30,6 +29,7 @@ class CalibrationTool(Toplevel):
         self.rt, self.lt, self.lb, self.rb = None, None, None, None
         self.rt_dst, self.lt_dst, self.lb_dst, self.rb_dst = None, None, None, None
         self.image = None
+        self.pil_img = None
         self.adj_dst = {
             "lt_dst": ("lb_dst", "rt_dst"),
             "rt_dst": ("rb_dst", "lt_dst"),
@@ -63,6 +63,11 @@ class CalibrationTool(Toplevel):
             text='Warp it!',
             command=self.find_homography
         )
+        self.find_homography_preview_button = Button(
+            self.left_frame,
+            text='Warp preview',
+            command=self.find_homography_preview
+        )
 
         self.load_config_button = Button(
             self.left_frame,
@@ -89,10 +94,11 @@ class CalibrationTool(Toplevel):
 
         self.open_image_button.grid(row=0, column=0, padx=5, pady=5)
         self.find_homography_button.grid(row=0, column=1, padx=5, pady=5)
-        self.load_config_button.grid(row=0, column=2, padx=5, pady=5)
-        self.save_config_button.grid(row=0, column=3, padx=5, pady=5)
-        self.auto_save_config_button.grid(row=0, column=4, padx=5, pady=5)
-        self.warp_depth_button.grid(row=0, column=5, padx=5, pady=5)
+        self.find_homography_preview_button.grid(row=0, column=2, padx=5, pady=5)
+        self.load_config_button.grid(row=0, column=3, padx=5, pady=5)
+        self.save_config_button.grid(row=0, column=4, padx=5, pady=5)
+        self.auto_save_config_button.grid(row=0, column=5, padx=5, pady=5)
+        self.warp_depth_button.grid(row=0, column=6, padx=5, pady=5)
 
         self.limits_container = Canvas(self.center_frame)
         self.limits_container.grid(row=0, column=0)
@@ -100,7 +106,7 @@ class CalibrationTool(Toplevel):
 
         self.__src_point_placeholder = Label(self.center_frame, text="...")
         self.__src_point_placeholder.grid(row=1, column=0, padx=5, pady=5)
-        self.mainloop()
+        # self.mainloop()
 
     def calc_pts(self, width, height):
         pts_src = np.array([[int(width / 4), self.__horizont_line_height - self.RECT_SIZE // 2],
@@ -124,14 +130,14 @@ class CalibrationTool(Toplevel):
             'width': self.__img_width
         }
         with open(filename, 'w') as file:
-            documents = yaml.dump(config, file, default_flow_style=False)
+            json.dump(config, file)
 
     def load_config(self, filename):
         if not os.path.exists(filename):
             print('Config file not found. Use default values')
             return
         with open(filename) as file:
-            config = yaml.full_load(file)
+            config = json.load(file)
         self.ipm_transformer = IPMTransformer(np.array(config['homography']))
         self.__horizont_line_height = config['horizont']
         self.pts_src = np.array(config['src_points'])
@@ -140,16 +146,16 @@ class CalibrationTool(Toplevel):
         self.__img_width = config['width']
 
     def load_config_file(self):
-        filename = fd.askopenfilename(filetypes=[("YAML config", "*.yaml")])
+        filename = fd.askopenfilename(filetypes=[("JSON config", "*.json")])
         self.load_config(filename)
         self.place_control_elements()
 
     def save_config_file(self):
-        filename = fd.asksaveasfile(filetypes=[("YAML config", "*.yaml")])
+        filename = fd.asksaveasfile(filetypes=[("JSON config", "*.json")])
         self.save_config(filename.name)
 
     def auto_save_config_file(self):
-        filename = os.path.join(self.project_dir, f"{self.side_name}.yaml")
+        filename = os.path.join(self.project_dir, f"{self.side_name}.json")
         self.save_config(filename)
 
     def transform_depth(self):
@@ -210,17 +216,29 @@ class CalibrationTool(Toplevel):
                                  [rt_dst[0] + self.RECT_SIZE / 2, rt_dst[1] + self.RECT_SIZE / 2],
                                  [rb_dst[0] + self.RECT_SIZE / 2, rb_dst[1] + self.RECT_SIZE / 2]], dtype=np.float32)
 
-        print(self.pts_src, self.pts_dst, self.__horizont_line_height)
+        # print(self.pts_src, self.pts_dst, self.__horizont_line_height)
+
+    def get_data(self) -> (dict, Image):
+        self.grab_set()
+        self.wait_window()
+        src = self.pts_src.copy()
+        src[:, 1] = src[:, 1] + self.__horizont_line_height
+        dst = self.pts_dst.copy()
+        dst[:, 1] = dst[:, 1] + self.__horizont_line_height
+        config = {
+            'homography': self.ipm_transformer.get_homography_matrix().tolist(),
+            'horizont': self.__horizont_line_height,
+            'src_points': src.tolist(),
+            'dst_points': dst.tolist(),
+            'height': self.__img_height,
+            'width': self.__img_width
+        }
+        return config, self.pil_img
 
     def find_homography(self):
         self.fill_pts_from_canvas()
         self.ipm_transformer.calc_homography(self.pts_src, self.pts_dst)
         h_img = cv2.resize(self.__src_image, (self.__img_width, self.__img_height))
-        fig = plt.figure()
-        ax1 = fig.add_subplot(2, 1, 1)
-        ax1.imshow(h_img)
-
-        fig.show()
         self.__img_ipm = self.ipm_transformer.get_ipm(h_img, is_mono=self.__img_filetype == "npy",
                                                       horizont=self.__horizont_line_height)
         if (self.__img_filetype == "npy"):
@@ -230,8 +248,25 @@ class CalibrationTool(Toplevel):
         else:
             pil_img = Image.fromarray(self.__img_ipm)
         target_width = self.__img_width  # 400
-        pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
-        pil_img.show(title="Converted image")
+        self.pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
+        self.destroy()
+        self.update()
+
+    def find_homography_preview(self):
+        self.fill_pts_from_canvas()
+        self.ipm_transformer.calc_homography(self.pts_src, self.pts_dst)
+        h_img = cv2.resize(self.__src_image, (self.__img_width, self.__img_height))
+        self.__img_ipm = self.ipm_transformer.get_ipm(h_img, is_mono=self.__img_filetype == "npy",
+                                                      horizont=self.__horizont_line_height)
+        if (self.__img_filetype == "npy"):
+            colorized = colorize(self.__img_ipm)
+            colorized = np.asarray(colorized)
+            pil_img = Image.fromarray(colorized)
+        else:
+            pil_img = Image.fromarray(self.__img_ipm)
+        target_width = self.__img_width  # 400
+        self.pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
+        self.pil_img.show()
 
     def place_control_elements(self):
         self.limits_container.delete('all')

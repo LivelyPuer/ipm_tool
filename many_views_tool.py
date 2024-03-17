@@ -3,35 +3,15 @@ import os
 from tkinter import *
 from tkinter import filedialog as fd
 
-import numpy as np
-from PIL import Image
+import PIL
+from PIL import Image, ImageTk
 from matplotlib import pyplot as plt
 
 from homography_tool import HomographyTool
+from ipm360 import IPM360
 from ipm_calibration_tool import CalibrationTool
+from untils.rectangle import rectangle
 
-side_name = {
-    (0, 0): "forward_left",
-    (0, 1): "left",
-    (0, 2): "backward_left",
-    (1, 0): "forward",
-    (1, 2): "backward",
-    (2, 0): "forward_right",
-    (2, 1): "right",
-    (2, 2): "backward_right",
-}
-show_side = {
-    "forward": 2,
-    "left": 4,
-    "right": 6,
-    "backward": 8,
-}
-rotate_side = {
-    "forward": lambda x: x,
-    "left": lambda x: np.rot90(x),
-    "right": lambda x: np.rot90(x, -1),
-    "backward": lambda x: np.rot90(x, 2),
-}
 project_root = "data"
 
 
@@ -46,7 +26,21 @@ class Camera:
 
 
 class ManyCameras:
+    cameras_count = 6
+    preview_image_size = 200
+    # Позиционирование камер проходит против часовой стрелки от камеры, смотрящей вперед
+    default_cameras_positions = [(200, 0), (0, 200), (0, 400), (200, 600), (400, 400), (400, 200)]
+    cameras_position = []
+    cameras_images = [None for i in range(cameras_count)]
+    rotated_cameras_images = []
+
+    def my_callback(self, var):
+        self.place_camera_elements()
+
     def __init__(self):
+        self.fullconfig = {"data": []}
+        for i in range(self.cameras_count):
+            self.fullconfig["data"].append({"pos": self.default_cameras_positions[i], "angle": 0, "homography": {}})
         self.root = Tk()
         self.start_pos = (450, 100)
         self.root.title("Calibration tool for IPM")  # title of the GUI window
@@ -56,10 +50,51 @@ class ManyCameras:
         self.nav.grid(row=0, column=0)
         self.cameras = []
         self.canvas = Canvas(self.root)
-        self.canvas.config(width=1500, height=1300)
+        self.canvas.config(width=750, height=900)
         self.canvas.grid(row=1, column=0)
         self.canvas.bind('<Button-1>', self.selected)
-        self.config_text = ""
+        self.frame_config = Frame(self.root, borderwidth=1, relief=SOLID)
+        self.frame_config.config(width=600, height=600)
+        self.frame_config.grid(row=1, column=1, padx=5, pady=5)
+        self.configs_frames = []
+        for i in range(self.cameras_count):
+            card = Frame(self.frame_config, borderwidth=1, relief=SOLID)
+            self.configs_frames.append(card)
+            card.config(width=560, height=130)
+            card.grid(row=int(i / 2), column=i % 2, padx=10, pady=10)
+
+            varx = IntVar()
+            vary = IntVar()
+            vara = IntVar()
+
+            varx.set(self.default_cameras_positions[i][0])
+            vary.set(self.default_cameras_positions[i][1])
+
+            ll = Label(card, text=f"Camera {i}")
+            ll.grid(row=0)
+
+            lx = Label(card, text="X")
+            lx.grid(row=1, column=0)
+            wx = Scale(card, from_=0, to=600, orient=HORIZONTAL, variable=varx, command=self.my_callback)
+            wx.grid(row=1, column=1)
+
+            wx.bind("<Button-1>", lambda event: event.widget.focus_set())
+
+            ly = Label(card, text="Y")
+            ly.grid(row=2, column=0)
+            wy = Scale(card, from_=0, to=600, orient=HORIZONTAL, variable=vary, command=self.my_callback)
+            wy.grid(row=2, column=1)
+            wy.bind("<Button-1>", lambda event: event.widget.focus_set())
+
+            la = Label(card, text="Angle")
+            la.grid(row=3, column=0)
+            wa = Scale(card, from_=0, to=359, orient=HORIZONTAL, variable=vara, command=self.my_callback)
+            wa.grid(row=3, column=1)
+            wa.bind("<Button-1>", lambda event: event.widget.focus_set())
+
+            self.cameras_position.append((wx, wy))
+            self.rotated_cameras_images.append(wa)
+
         self.images = {}
         self.place_camera_elements()
 
@@ -68,9 +103,14 @@ class ManyCameras:
             text='Load config',
             command=self.load_config
         )
+        self.save_config_button = Button(
+            self.nav,
+            text='Save config',
+            command=self.save_config
+        )
         self.load_image_button = Button(
             self.nav,
-            text='Load images',
+            text='Load preview images',
             command=self.load_images
         )
         self.load_homografy_button = Button(
@@ -81,60 +121,88 @@ class ManyCameras:
         self.find_homography_button.grid(row=0, column=1, padx=5, pady=5)
         self.load_image_button.grid(row=0, column=2, padx=5, pady=5)
         self.load_homografy_button.grid(row=0, column=3, padx=5, pady=5)
+        self.save_config_button.grid(row=0, column=4, padx=5, pady=5)
         self.root.mainloop()
         self.images = {}
 
     def place_camera_elements(self):
+        self.canvas.delete("all")
+        # self.canvas.create_image(0, 0,
+        #                          anchor=NW, image=PhotoImage("data/set1/set1_back.png"))
+        # Отображение предпросмотра камер
+        for i in range(len(self.cameras_position)):
+            if not self.cameras_images[i]:
+                self.canvas.create_rectangle(
+                    *rectangle(self.cameras_position[i][0].get(), self.cameras_position[i][1].get(),
+                               200, 200),
+                    fill='grey',
+                    outline='blue',
+                    width=3,
+                    activedash=(5, 4), tags=f"camera_{i}")
+            else:
+                img = self.cameras_images[i].rotate(self.rotated_cameras_images[i].get(), PIL.Image.NEAREST,
+                                                    expand=1).convert('RGBA')
+                pixdata = img.load()
 
-        self.canvas.create_text(750, 50,
-                                text="Forward",
-                                justify=CENTER, font="Verdana 14")
-        self.canvas.create_text(100, 100, text=self.config_text, font="Verdana 14", tags="config_text")
-        self.canvas.create_text(100, 500, text=str(self.images), font="Verdana 14", tags="images_text")
-
-        for r in range(3):
-            for c in range(3):
-                if r == 1 and c == 1:
-                    self.canvas.create_rectangle(self.start_pos[0] + 10 + 200 * r, self.start_pos[1] + 10 + 200 * c,
-                                                 self.start_pos[0] + 200 * (r + 1), self.start_pos[1] + 200 * (c + 1),
-                                                 fill='grey',
-                                                 outline='blue',
-                                                 width=3,
-                                                 activedash=(5, 4), tags=f"{r}  {c}")
-                else:
-                    self.cameras.append(Camera(
-                        self.canvas.create_rectangle(self.start_pos[0] + 10 + 200 * r, self.start_pos[1] + 10 + 200 * c,
-                                                     self.start_pos[0] + 200 * (r + 1),
-                                                     self.start_pos[1] + 200 * (c + 1),
-                                                     fill='yellow',
-                                                     outline='green',
-                                                     width=3,
-                                                     activedash=(5, 4)), (r, c)))
+                width, height = img.size
+                for y in range(height):
+                    for x in range(width):
+                        if pixdata[x, y] == (0, 0, 0, 255):
+                            pixdata[x, y] = (0, 0, 0, 0)
+                photo = ImageTk.PhotoImage(img)
+                globals()[f"self.canvas.photo{i}"] = photo
+                self.canvas.create_image(self.cameras_position[i][0].get(), self.cameras_position[i][1].get(),
+                                         anchor=NW, image=photo)
+                # Отображение списка конфигов
+                # for i in range(len(self.default_cameras_positions)):
 
     def load_config(self):
-        self.config_text = os.listdir(os.path.join(project_root, "config"))
-        self.canvas.itemconfig("config_text", text="\n".join(self.config_text))
+        filename = fd.askopenfilename(filetypes=[("JSON config", "*.json")])
+        if not os.path.exists(filename):
+            print('Config file not found. Use default values')
+            return
+        with open(filename) as file:
+            config = json.load(file)
+        self.fullconfig = dict(config)
+        self.parce_config()
+
+    def parce_config(self):
+        for i in range(len(self.cameras_position)):
+            self.cameras_position[i][0].set(self.fullconfig["data"][i]["pos"][0] // 4)
+            self.cameras_position[i][1].set(self.fullconfig["data"][i]["pos"][1] // 4)
+            self.rotated_cameras_images[i].set(self.fullconfig["data"][i]["angle"])
+        self.place_camera_elements()
+
+    def save_config(self):
+        filename = fd.asksaveasfile(filetypes=[("JSON config", "*.json")]).name
+        if filename.split(".")[-1] != "json":
+            filename += ".json"
+        self.save_pos_to_fullconfig()
+        with open(filename, 'w') as file:
+            json.dump(self.fullconfig, file)
+
+    def save_pos_to_fullconfig(self):
+        for i in range(len(self.cameras_position)):
+            self.fullconfig["data"][i]["pos"] = (
+            self.cameras_position[i][0].get() * 4, self.cameras_position[i][1].get() * 4)
+            self.fullconfig["data"][i]["angle"] = self.rotated_cameras_images[i].get()
 
     def load_images(self):
-        filename = fd.askopenfilename(filetypes=[("JSON file", "*.json")])
-        with open(filename) as file:
-            images = json.load(file)
-            self.images = dict(images["data"])
-        self.canvas.itemconfig("images_text", text="\n".join(self.images))
+        ipm360 = IPM360()
+        ipm360.load_config(self.fullconfig)
+        ipm360.homography360(self.cameras_images).show()
 
     def load_homografy(self):
         fig = plt.figure()
 
         for k, v in self.images.items():
-            print(k, v)
             config_path = os.path.join(project_root, "config", f'{k}.yaml')
 
             ht = HomographyTool()
             ht.load_image(v)
             ht.load_config(config_path)
-            self.images[k] = Image.fromarray(rotate_side[k](ht.find_homography()))
-            ax1 = fig.add_subplot(3, 3, show_side[k])
-            ax1.imshow(self.images[k])
+            img = Image.fromarray(ht.find_homography())
+            # self.cameras_images[] img.resize((self.preview_image_size, self.preview_image_size))
         res = Image.new("RGB", (1200 * 3, 1200 * 3), color="black")
         res.paste(self.images["forward"], (1200, 0))
         res.paste(self.images["left"], (0, 1200))
@@ -144,7 +212,17 @@ class ManyCameras:
         ax1 = fig.add_subplot(3, 3, 5)
         ax1.imshow(res)
         fig.show()
+
     def selected(self, event):
-        pos_x = (event.x - self.start_pos[0]) // 200
-        pos_y = (event.y - self.start_pos[1]) // 200
-        CalibrationTool(self.root, side_name[(pos_x, pos_y)], os.path.join(project_root, "config"))
+        nearby_tags = self.canvas.find_closest(event.x, event.y)
+        if self.canvas.gettags(nearby_tags[0])[0].split("_")[0] != "camera":
+            return
+        idx = int(self.canvas.gettags(nearby_tags[0])[0].split("_")[1])
+        cb = CalibrationTool(self.root, f"Camera #{idx}", os.path.join(project_root, "config"))
+        config, image = cb.get_data()
+        if config and image:
+            print(config, image)
+            image = image.resize((200, 200))
+            self.fullconfig["data"][idx]["homography"] = config
+            self.cameras_images[idx] = image
+            self.place_camera_elements()
