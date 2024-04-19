@@ -38,8 +38,10 @@ class IPM360:
             tmp.calc_homography(np.array(homo_data["src_points"]), np.array(homo_data["dst_points"]))
             self.IPMconfig.append(tmp)
 
+    # Принимает список PIL img
     def homography360(self, cameras):
-        # Принимает список PIL img
+        img = cameras[0].rotate(self.config["data"][0]["angle"], PIL.Image.NEAREST,
+                                expand=1).convert('RGBA')
         if len(cameras) != self.cameras_count:
             print(f"Length cameras array dont equals cameras count {self.cameras_count}")
             return
@@ -47,17 +49,16 @@ class IPM360:
 
         for idx in range(self.cameras_count):
             camera_data = self.config["data"][idx]
-            img = self.homography(cameras[idx], idx).rotate(camera_data["angle"], PIL.Image.NEAREST,
-                                                            expand=True).convert("RGBA")
+            globals()["image{idx}"] = self.homography(cameras[idx], idx).rotate(camera_data["angle"], PIL.Image.NEAREST,
+                                                                                expand=True).convert("RGBA")
+            pixdata = globals()["image{idx}"].load()
 
-            pixdata = img.load()
-
-            width, height = img.size
+            width, height = globals()["image{idx}"].size
             for y in range(height):
                 for x in range(width):
                     if pixdata[x, y] == (0, 0, 0, 255):
                         pixdata[x, y] = (0, 0, 0, 0)
-            res_image.paste(img, camera_data["pos"])
+            res_image.paste(globals()["image{idx}"], (camera_data["pos"][0], camera_data["pos"][1]))
         return res_image
 
     def homography(self, image, idx):

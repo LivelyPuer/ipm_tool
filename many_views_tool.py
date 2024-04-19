@@ -4,12 +4,14 @@ from tkinter import *
 from tkinter import filedialog as fd
 
 import PIL
+import cv2
+import numpy as np
 from PIL import Image, ImageTk
 from matplotlib import pyplot as plt
 
-from homography_tool import HomographyTool
 from ipm360 import IPM360
 from ipm_calibration_tool import CalibrationTool
+from ipm_transformer import IPMTransformer
 from untils.rectangle import rectangle
 
 project_root = "data"
@@ -32,6 +34,7 @@ class ManyCameras:
     default_cameras_positions = [(200, 0), (0, 200), (0, 400), (200, 600), (400, 400), (400, 200)]
     cameras_position = []
     cameras_images = [None for i in range(cameras_count)]
+    source_cameras_images = [None for _ in range(cameras_count)]
     rotated_cameras_images = []
 
     def my_callback(self, var):
@@ -108,9 +111,14 @@ class ManyCameras:
             text='Save config',
             command=self.save_config
         )
-        self.load_image_button = Button(
+        self.load_pre_image_button = Button(
             self.nav,
             text='Load preview images',
+            command=self.load_pre_images
+        )
+        self.load_image_button = Button(
+            self.nav,
+            text='Load images',
             command=self.load_images
         )
         self.load_homografy_button = Button(
@@ -119,9 +127,10 @@ class ManyCameras:
             command=self.load_homografy
         )
         self.find_homography_button.grid(row=0, column=1, padx=5, pady=5)
-        self.load_image_button.grid(row=0, column=2, padx=5, pady=5)
+        self.load_pre_image_button.grid(row=0, column=2, padx=5, pady=5)
         self.load_homografy_button.grid(row=0, column=3, padx=5, pady=5)
         self.save_config_button.grid(row=0, column=4, padx=5, pady=5)
+        self.load_image_button.grid(row=0, column=5, padx=5, pady=5)
         self.root.mainloop()
         self.images = {}
 
@@ -152,7 +161,7 @@ class ManyCameras:
                 photo = ImageTk.PhotoImage(img)
                 globals()[f"self.canvas.photo{i}"] = photo
                 self.canvas.create_image(self.cameras_position[i][0].get(), self.cameras_position[i][1].get(),
-                                         anchor=NW, image=photo)
+                                         anchor=NW, image=photo, tags=f"camera_{i}")
                 # Отображение списка конфигов
                 # for i in range(len(self.default_cameras_positions)):
 
@@ -184,25 +193,58 @@ class ManyCameras:
     def save_pos_to_fullconfig(self):
         for i in range(len(self.cameras_position)):
             self.fullconfig["data"][i]["pos"] = (
-            self.cameras_position[i][0].get() * 4, self.cameras_position[i][1].get() * 4)
+                self.cameras_position[i][0].get() * 4, self.cameras_position[i][1].get() * 4)
             self.fullconfig["data"][i]["angle"] = self.rotated_cameras_images[i].get()
 
-    def load_images(self):
+    def load_pre_images(self):
         ipm360 = IPM360()
+        self.save_pos_to_fullconfig()
         ipm360.load_config(self.fullconfig)
-        ipm360.homography360(self.cameras_images).show()
+        # self.source_cameras_images[1].show()
+        ipm360.homography360(self.source_cameras_images).show()
+
+    def homography(self, image, idx):
+        if idx < 0 or idx >= self.cameras_count:
+            print(f"Index {idx} don`t merge with cameras count")
+            return
+        homo_data = self.fullconfig["data"][idx]["homography"]
+        tmp = IPMTransformer(np.array(homo_data["homography"]))
+        tmp.calc_homography(np.array(homo_data["src_points"]), np.array(homo_data["dst_points"]))
+        h_img = cv2.resize(image, (homo_data["width"], homo_data["height"]))
+        img_ipm = tmp.get_ipm(h_img, is_mono=False,
+                              horizont=homo_data["horizont"])
+
+        pil_img = Image.fromarray(img_ipm)
+        target_width = 400  # 400
+        pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
+        # homo_data = self.fullconfig["data"][idx]["homography"]
+        # np_img = np.array(image)
+        # h_img = cv2.resize(np_img, (homo_data["width"], homo_data["height"]))
+        #
+        # homo_data = self.fullconfig["data"][idx]["homography"]
+        # tmp = IPMTransformer(homo_data["homography"])
+        # tmp.calc_homography(np.array(homo_data["src_points"]), np.array(homo_data["dst_points"]))
+        #
+        # img_ipm = tmp.get_ipm(h_img, horizont=homo_data["horizont"])
+        # pil_img = Image.fromarray(img_ipm)
+        # target_width = homo_data["width"]  # 400
+        # pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
+
+        return pil_img
+
+    def load_images(self):
+        filenames = fd.askopenfilenames(filetypes=[("Images", "*.png")])
+        # self.save_pos_to_fullconfig()
+        for idx in range(len(filenames)):
+            filename = filenames[idx]
+            print(filename)
+            self.source_cameras_images[idx] = Image.open(filename)
+            self.cameras_images[idx] = self.homography(np.array(self.source_cameras_images[idx]), idx).resize((200, 200))
+        self.place_camera_elements()
 
     def load_homografy(self):
         fig = plt.figure()
 
-        for k, v in self.images.items():
-            config_path = os.path.join(project_root, "config", f'{k}.yaml')
-
-            ht = HomographyTool()
-            ht.load_image(v)
-            ht.load_config(config_path)
-            img = Image.fromarray(ht.find_homography())
-            # self.cameras_images[] img.resize((self.preview_image_size, self.preview_image_size))
         res = Image.new("RGB", (1200 * 3, 1200 * 3), color="black")
         res.paste(self.images["forward"], (1200, 0))
         res.paste(self.images["left"], (0, 1200))
@@ -219,10 +261,11 @@ class ManyCameras:
             return
         idx = int(self.canvas.gettags(nearby_tags[0])[0].split("_")[1])
         cb = CalibrationTool(self.root, f"Camera #{idx}", os.path.join(project_root, "config"))
-        config, image = cb.get_data()
+        config, image, src_image = cb.get_data()
         if config and image:
             print(config, image)
             image = image.resize((200, 200))
             self.fullconfig["data"][idx]["homography"] = config
             self.cameras_images[idx] = image
+            self.source_cameras_images[idx] = src_image
             self.place_camera_elements()

@@ -233,7 +233,7 @@ class CalibrationTool(Toplevel):
             'height': self.__img_height,
             'width': self.__img_width
         }
-        return config, self.pil_img
+        return config, self.pil_img, self.__src_image
 
     def find_homography(self):
         self.fill_pts_from_canvas()
