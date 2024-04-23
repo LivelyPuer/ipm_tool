@@ -131,6 +131,7 @@ class CalibrationTool(Toplevel):
         }
         with open(filename, 'w') as file:
             json.dump(config, file)
+        print(f"Saved {filename}")
 
     def load_config(self, filename):
         if not os.path.exists(filename):

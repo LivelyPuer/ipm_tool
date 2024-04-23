@@ -31,11 +31,12 @@ class ManyCameras:
     cameras_count = 6
     preview_image_size = 200
     # Позиционирование камер проходит против часовой стрелки от камеры, смотрящей вперед
-    default_cameras_positions = [(200, 0), (0, 200), (0, 400), (200, 600), (400, 400), (400, 200)]
+    default_cameras_positions = [(800, 0), (0, 800), (0, 1600), (800, 2400), (1600, 1600), (1600, 800)]
     cameras_position = []
     cameras_images = [None for i in range(cameras_count)]
     source_cameras_images = [None for _ in range(cameras_count)]
     rotated_cameras_images = []
+    scale_cameras_images = []
 
     def my_callback(self, var):
         self.place_camera_elements()
@@ -69,23 +70,25 @@ class ManyCameras:
             varx = IntVar()
             vary = IntVar()
             vara = IntVar()
+            vars = IntVar()
 
             varx.set(self.default_cameras_positions[i][0])
             vary.set(self.default_cameras_positions[i][1])
+            vars.set(10)
 
             ll = Label(card, text=f"Camera {i}")
             ll.grid(row=0)
 
             lx = Label(card, text="X")
             lx.grid(row=1, column=0)
-            wx = Scale(card, from_=0, to=600, orient=HORIZONTAL, variable=varx, command=self.my_callback)
+            wx = Scale(card, from_=0, to=2400, orient=HORIZONTAL, variable=varx, command=self.my_callback)
             wx.grid(row=1, column=1)
 
             wx.bind("<Button-1>", lambda event: event.widget.focus_set())
 
             ly = Label(card, text="Y")
             ly.grid(row=2, column=0)
-            wy = Scale(card, from_=0, to=600, orient=HORIZONTAL, variable=vary, command=self.my_callback)
+            wy = Scale(card, from_=0, to=2400, orient=HORIZONTAL, variable=vary, command=self.my_callback)
             wy.grid(row=2, column=1)
             wy.bind("<Button-1>", lambda event: event.widget.focus_set())
 
@@ -95,8 +98,15 @@ class ManyCameras:
             wa.grid(row=3, column=1)
             wa.bind("<Button-1>", lambda event: event.widget.focus_set())
 
+            ls = Label(card, text="Scale x10")
+            ls.grid(row=4, column=0)
+            ws = Scale(card, from_=1, to=20, orient=HORIZONTAL, variable=vars, command=self.my_callback)
+            ws.grid(row=4, column=1)
+            ws.bind("<Button-1>", lambda event: event.widget.focus_set())
+
             self.cameras_position.append((wx, wy))
             self.rotated_cameras_images.append(wa)
+            self.scale_cameras_images.append(ws)
 
         self.images = {}
         self.place_camera_elements()
@@ -121,16 +131,11 @@ class ManyCameras:
             text='Load images',
             command=self.load_images
         )
-        self.load_homografy_button = Button(
-            self.nav,
-            text='Load homografy',
-            command=self.load_homografy
-        )
+
         self.find_homography_button.grid(row=0, column=1, padx=5, pady=5)
         self.load_pre_image_button.grid(row=0, column=2, padx=5, pady=5)
-        self.load_homografy_button.grid(row=0, column=3, padx=5, pady=5)
-        self.save_config_button.grid(row=0, column=4, padx=5, pady=5)
-        self.load_image_button.grid(row=0, column=5, padx=5, pady=5)
+        self.save_config_button.grid(row=0, column=3, padx=5, pady=5)
+        self.load_image_button.grid(row=0, column=4, padx=5, pady=5)
         self.root.mainloop()
         self.images = {}
 
@@ -142,15 +147,19 @@ class ManyCameras:
         for i in range(len(self.cameras_position)):
             if not self.cameras_images[i]:
                 self.canvas.create_rectangle(
-                    *rectangle(self.cameras_position[i][0].get(), self.cameras_position[i][1].get(),
-                               200, 200),
+                    *rectangle(self.cameras_position[i][0].get() // 4, self.cameras_position[i][1].get() // 4,
+                               round(200 * (self.scale_cameras_images[i].get() / 10)), round(
+                                           200 * (self.scale_cameras_images[i].get() / 10))),
                     fill='grey',
                     outline='blue',
                     width=3,
                     activedash=(5, 4), tags=f"camera_{i}")
             else:
-                img = self.cameras_images[i].rotate(self.rotated_cameras_images[i].get(), PIL.Image.NEAREST,
-                                                    expand=1).convert('RGBA')
+                img = self.cameras_images[i].resize(
+                    (round(self.cameras_images[i].size[0] * self.scale_cameras_images[i].get() / 10),
+                     round(self.cameras_images[i].size[1] * self.scale_cameras_images[i].get() / 10)))
+                img = img.rotate(self.rotated_cameras_images[i].get(), PIL.Image.NEAREST,
+                                 expand=1).convert('RGBA')
                 pixdata = img.load()
 
                 width, height = img.size
@@ -160,7 +169,7 @@ class ManyCameras:
                             pixdata[x, y] = (0, 0, 0, 0)
                 photo = ImageTk.PhotoImage(img)
                 globals()[f"self.canvas.photo{i}"] = photo
-                self.canvas.create_image(self.cameras_position[i][0].get(), self.cameras_position[i][1].get(),
+                self.canvas.create_image(self.cameras_position[i][0].get() // 4, self.cameras_position[i][1].get() // 4,
                                          anchor=NW, image=photo, tags=f"camera_{i}")
                 # Отображение списка конфигов
                 # for i in range(len(self.default_cameras_positions)):
@@ -177,9 +186,10 @@ class ManyCameras:
 
     def parce_config(self):
         for i in range(len(self.cameras_position)):
-            self.cameras_position[i][0].set(self.fullconfig["data"][i]["pos"][0] // 4)
-            self.cameras_position[i][1].set(self.fullconfig["data"][i]["pos"][1] // 4)
+            self.cameras_position[i][0].set(self.fullconfig["data"][i]["pos"][0])
+            self.cameras_position[i][1].set(self.fullconfig["data"][i]["pos"][1])
             self.rotated_cameras_images[i].set(self.fullconfig["data"][i]["angle"])
+            self.scale_cameras_images[i].set(self.fullconfig["data"][i]["scale"])
         self.place_camera_elements()
 
     def save_config(self):
@@ -193,27 +203,45 @@ class ManyCameras:
     def save_pos_to_fullconfig(self):
         for i in range(len(self.cameras_position)):
             self.fullconfig["data"][i]["pos"] = (
-                self.cameras_position[i][0].get() * 4, self.cameras_position[i][1].get() * 4)
+                self.cameras_position[i][0].get(), self.cameras_position[i][1].get())
             self.fullconfig["data"][i]["angle"] = self.rotated_cameras_images[i].get()
+            self.fullconfig["data"][i]["scale"] = self.scale_cameras_images[i].get()
 
     def load_pre_images(self):
-        ipm360 = IPM360()
         self.save_pos_to_fullconfig()
+        ipm360 = IPM360()
         ipm360.load_config(self.fullconfig)
         # self.source_cameras_images[1].show()
         ipm360.homography360(self.source_cameras_images).show()
+
+    # def load_ipm_config(self, config_path):
+    #     if not os.path.exists(config_path):
+    #         print('Config file not found. Use default values')
+    #         return
+    #     with open(config_path) as file:
+    #         config = yaml.full_load(file)
+    #     self.__homograpthy_matrix = np.array(config['homography'])
+    #     self.__horizont_line_height = config['horizont']
+    #     self.__img_height = config['height']
+    #     self.__img_width = config['width']
+    #
+    # def get_horizont_line(self):
+    #     return self.__horizont_line_height
+    #
+    # def generate_ipm(self, image, is_mono=False, need_cut=True):
+    #     ipm_transformer = IPMTransformer(homography_matrix=self.__homograpthy_matrix)
+    #     img_ipm = ipm_transformer.get_ipm(image, is_mono=is_mono, horizont=self.__horizont_line_height,
+    #                                       need_cut=need_cut)
+    #     return img_ipm
 
     def homography(self, image, idx):
         if idx < 0 or idx >= self.cameras_count:
             print(f"Index {idx} don`t merge with cameras count")
             return
         homo_data = self.fullconfig["data"][idx]["homography"]
-        tmp = IPMTransformer(np.array(homo_data["homography"]))
-        tmp.calc_homography(np.array(homo_data["src_points"]), np.array(homo_data["dst_points"]))
         h_img = cv2.resize(image, (homo_data["width"], homo_data["height"]))
-        img_ipm = tmp.get_ipm(h_img, is_mono=False,
-                              horizont=homo_data["horizont"])
-
+        ipm_transformer = IPMTransformer(homography_matrix=np.array(homo_data["homography"]))
+        img_ipm = ipm_transformer.get_ipm(h_img, is_mono=False, horizont=homo_data["horizont"])
         pil_img = Image.fromarray(img_ipm)
         target_width = 400  # 400
         pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
@@ -239,7 +267,8 @@ class ManyCameras:
             filename = filenames[idx]
             print(filename)
             self.source_cameras_images[idx] = Image.open(filename)
-            self.cameras_images[idx] = self.homography(np.array(self.source_cameras_images[idx]), idx).resize((200, 200))
+            self.cameras_images[idx] = self.homography(np.array(self.source_cameras_images[idx]), idx).resize(
+                (200, 200))
         self.place_camera_elements()
 
     def load_homografy(self):

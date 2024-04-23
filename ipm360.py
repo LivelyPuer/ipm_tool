@@ -40,8 +40,6 @@ class IPM360:
 
     # Принимает список PIL img
     def homography360(self, cameras):
-        img = cameras[0].rotate(self.config["data"][0]["angle"], PIL.Image.NEAREST,
-                                expand=1).convert('RGBA')
         if len(cameras) != self.cameras_count:
             print(f"Length cameras array dont equals cameras count {self.cameras_count}")
             return
@@ -49,16 +47,21 @@ class IPM360:
 
         for idx in range(self.cameras_count):
             camera_data = self.config["data"][idx]
-            globals()["image{idx}"] = self.homography(cameras[idx], idx).rotate(camera_data["angle"], PIL.Image.NEAREST,
-                                                                                expand=True).convert("RGBA")
+
+            globals()["image{idx}"] = self.homography(cameras[idx], idx)
+            globals()["image{idx}"] = globals()["image{idx}"].rotate(camera_data["angle"], PIL.Image.NEAREST,
+                                                                     expand=True).convert("RGBA")
+            globals()["image{idx}"] = globals()["image{idx}"].resize(
+                (round(800 * camera_data["scale"] / 10),
+                 round(800 * camera_data["scale"] / 10)))
             pixdata = globals()["image{idx}"].load()
 
             width, height = globals()["image{idx}"].size
             for y in range(height):
                 for x in range(width):
-                    if pixdata[x, y] == (0, 0, 0, 255):
+                    if pixdata[x, y][0] == 0 and pixdata[x, y][1] == 0 and pixdata[x, y][2] == 0:
                         pixdata[x, y] = (0, 0, 0, 0)
-            res_image.paste(globals()["image{idx}"], (camera_data["pos"][0], camera_data["pos"][1]))
+            res_image.alpha_composite(globals()["image{idx}"], (camera_data["pos"][0], camera_data["pos"][1]))
         return res_image
 
     def homography(self, image, idx):
@@ -66,10 +69,12 @@ class IPM360:
             print(f"Index {idx} don`t merge with cameras count")
             return
         homo_data = self.config["data"][idx]["homography"]
-        np_img = np.array(image)
-        h_img = cv2.resize(np_img, (homo_data["width"], homo_data["height"]))
-        img_ipm = self.IPMconfig[idx].get_ipm(h_img, horizont=homo_data["horizont"])
+        print(homo_data)
+        image = np.array(image)
+        h_img = cv2.resize(image, (homo_data["width"], homo_data["height"]))
+        ipm_transformer = IPMTransformer(homography_matrix=np.array(homo_data["homography"]))
+        img_ipm = ipm_transformer.get_ipm(h_img, is_mono=False, horizont=homo_data["horizont"])
         pil_img = Image.fromarray(img_ipm)
-        target_width = homo_data["width"]  # 400
+        target_width = 800  # 400
         pil_img = pil_img.resize((target_width, int(pil_img.size[1] * target_width / pil_img.size[0])))
         return pil_img
