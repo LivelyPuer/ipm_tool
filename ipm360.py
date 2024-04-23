@@ -49,11 +49,12 @@ class IPM360:
             camera_data = self.config["data"][idx]
 
             globals()["image{idx}"] = self.homography(cameras[idx], idx)
-            globals()["image{idx}"] = globals()["image{idx}"].rotate(camera_data["angle"], PIL.Image.NEAREST,
-                                                                     expand=True).convert("RGBA")
             globals()["image{idx}"] = globals()["image{idx}"].resize(
                 (round(800 * camera_data["scale"] / 10),
                  round(800 * camera_data["scale"] / 10)))
+            globals()["image{idx}"] = globals()["image{idx}"].rotate(camera_data["angle"], PIL.Image.NEAREST,
+                                                                     expand=True).convert("RGBA")
+
             pixdata = globals()["image{idx}"].load()
 
             width, height = globals()["image{idx}"].size
